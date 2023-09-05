@@ -5,42 +5,38 @@ import log from "./log.js";
 import { EOL } from "os";
 
 export default class QMPClient extends EventEmitter {
-    socketfile : string;
-    sockettype: string;
-    socket : Socket;
-    connected : boolean;
-    sentConnected : boolean;
-    cmdMutex : Mutex; // So command outputs don't get mixed up
-    constructor(socketfile : string, sockettype: string) {
+    socketfile: string;
+    socket: Socket;
+    connected: boolean;
+    sentConnected: boolean;
+    cmdMutex: Mutex;
+
+    constructor(socketfile: string) {
         super();
-        this.sockettype = sockettype;
         this.socketfile = socketfile;
         this.socket = new Socket();
         this.connected = false;
         this.sentConnected = false;
         this.cmdMutex = new Mutex();
     }
-    connect() : Promise<void> {
-        return new Promise((res, rej) => {
-            if (this.connected) {res(); return;}
-            try {
-                if(this.sockettype == "tcp:") {
-                    let _sock = this.socketfile.split(':');
-                    this.socket.connect(parseInt(_sock[1]), _sock[0]);
-                }else{
-                    this.socket.connect(this.socketfile);
-                }
-            } catch (e) {
-                this.onClose();
-            }
-            this.connected = true;
-            this.socket.on('error', () => false); // Disable throwing if QMP errors
-            this.socket.on('data', (data) => {
-                data.toString().split(EOL).forEach(instr => this.onData(instr));
-            });
-            this.socket.on('close', () => this.onClose());
-            this.once('connected', () => {res();});
-        })
+
+    async connect(): Promise<void> {
+        if (this.connected) return;
+        try {
+            await this.socket.connect(this.socketfile);
+        } catch (e) {
+            this.onClose();
+            return;
+        }
+
+        this.connected = true;
+        this.socket.on('error', () => false); // Disable throwing if QMP errors
+        this.socket.on('data', (data) => this.onData(data));
+        this.socket.on('close', () => this.onClose());
+        await this.execute({ execute: "qmp_capabilities" });
+
+        this.emit('connected');
+        this.sentConnected = true;
     }
 
     disconnect() {
@@ -48,55 +44,38 @@ export default class QMPClient extends EventEmitter {
         this.socket.destroy();
     }
 
-    private async onData(data : string) {
-        let msg;
-
-        try {
-            msg = JSON.parse(data);
-        } catch {
-            return;
-        }
-
-        if (msg.QMP !== undefined) {
-            if (this.sentConnected) 
-                return;
-                
-            await this.execute({ execute: "qmp_capabilities" });
-
-            this.emit('connected');
-            this.sentConnected = true;
-        }
-        if (msg.return !== undefined && Object.keys(msg.return).length)
-            this.emit("qmpreturn", msg.return);
-        else if(msg.event !== undefined) {
-            switch(msg.event) {
-                case "STOP":
-                {
-                    log("INFO", "The VM was shut down, restarting...");
-                    this.reboot();
-                    break;
+    private onData(data: Buffer) {
+        const messages = data.toString().split(EOL);
+        for (const instr of messages) {
+            try {
+                const msg = JSON.parse(instr);
+                if (msg.QMP !== undefined && !this.sentConnected) {
+                    this.emit('connected');
+                    this.sentConnected = true;
+                } else if (msg.return !== undefined && Object.keys(msg.return).length) {
+                    this.emit("qmpreturn", msg.return);
+                } else if (msg.event !== undefined) {
+                    if (msg.event === "STOP") {
+                        log("INFO", "The VM was shut down, restarting...");
+                        this.reboot();
+                    } else if (msg.event === "RESET") {
+                        log("INFO", "QEMU reset event occurred");
+                        this.resume();
+                    }
                 }
-                case "RESET":
-                {
-                    log("INFO", "QEMU reset event occured");
-                    this.resume();
-                    break;
-                };
-                default: break;
+            } catch (error) {
+                // Handle the case of invalid JSON more gracefully
+                log("ERROR", `Invalid JSON received: ${error}`);
             }
-        }else
-            // for now just return an empty string.
-            // This is a giant hack but avoids a deadlock
-            this.emit("qmpreturn", '');
+        }
     }
 
     private onClose() {
         this.connected = false;
         this.sentConnected = false;
-
-        if (this.socket.readyState === 'open')
+        if (this.socket.readyState === 'open') {
             this.socket.destroy();
-
+        }
         this.cmdMutex.cancel();
         this.cmdMutex.release();
         this.socket = new Socket();
@@ -104,49 +83,34 @@ export default class QMPClient extends EventEmitter {
     }
 
     async reboot() {
-        if (!this.connected) 
-            return;
-
+        if (!this.connected) return;
         await this.execute({"execute": "system_reset"});
     }
 
     async resume() {
-        if (!this.connected) 
-            return;
-
+        if (!this.connected) return;
         await this.execute({"execute": "cont"});
     }
 
     async ExitQEMU() {
-        if (!this.connected) 
-            return;
-
+        if (!this connected) return;
         await this.execute({"execute": "quit"});
     }
 
-    execute(args : object) {
-        return new Promise(async (res, rej) => {
-            var result:any;
-            try {
-                result = await this.cmdMutex.runExclusive(() => {
-                    // I kinda hate having two promises but IDK how else to do it /shrug
-                    return new Promise((reso, reje) => {
-                        this.once('qmpreturn', (e) => {
-                            reso(e);
-                        });
-                        this.socket.write(JSON.stringify(args));
-                    });
+    async execute(args: object) {
+        try {
+            return await this.cmdMutex.runExclusive(async () => {
+                return new Promise<any>((res) => {
+                    this.once('qmpreturn', (e) => res(e));
+                    this.socket.write(JSON.stringify(args));
                 });
-            } catch {
-                res({});
-            }
-            res(result);
-        });
+            });
+        } catch {
+            return {};
+        }
     }
 
-    runMonitorCmd(command : string) {
-        return new Promise(async (res, rej) => {
-            res(await this.execute({execute: "human-monitor-command", arguments: {"command-line": command}}));
-        });
+    async runMonitorCmd(command: string) {
+        return await this.execute({execute: "human-monitor-command", arguments: {"command-line": command}});
     }
 }
