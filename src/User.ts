@@ -61,8 +61,14 @@ export class User {
         this.VoteRateLimit = new RateLimiter(3, 3);
         this.VoteRateLimit.on('limit', () => this.closeConnection());
 
-        this.rdpClient = new RDPClient(); // Initialize the RDP client
-        this.connectRDP(); // Call the function to connect RDPClient
+        // Check the "RDP" configuration option and disable RDP connection if set to false
+        if (config.RDP === false) {
+            console.log("RDP is disabled in the configuration. RDP connection will not be established.");
+            this.rdpClient = null; // Set rdpClient to null to disable it
+        } else {
+            this.rdpClient = new RDPClient(); // Initialize the RDP client
+            this.connectRDP(); // Call the function to connect RDPClient
+        }
     }
 
     private async connectRDP() {
