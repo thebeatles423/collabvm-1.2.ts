@@ -19,3 +19,11 @@ Linux and Windows. NodeJS 18, and Debian's packages are garbage.
 This has already been fixed by CVM's owners, you are running a copy of this way back in the time.
 ### BRO YOU STOLE THE SOURCE CODE!!!!!!11111111111
 Shut the fuck up, this is a fork.
+
+
+## Updates
+-experimental rdp support
+
+-edits
+
+-deadlock fix (no more hacky shit)
