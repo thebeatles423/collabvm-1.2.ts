@@ -10,7 +10,7 @@ This is basically a modification to CVM's 1.2 ts model.
 
 ## FAQ
 ### When I try to access the admin panel, the server crashes!
-We are working onto this.
+You have something called config.toml, boy.
 ### Why only QEMU? Why not VMWare, VirtualBox, etc.?
 VMware is experimental. QEMU is native.
 ### What platforms can this be run on?
