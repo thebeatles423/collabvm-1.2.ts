@@ -5,6 +5,7 @@ import { IPData } from './IPData.js';
 import IConfig from './IConfig.js';
 import RateLimiter from './RateLimiter.js';
 import { execaCommand } from 'execa';
+import RDPClient from './experimental/replication'; // Import the RDPClient class
 
 export class User {
     socket: WebSocket;
@@ -18,6 +19,7 @@ export class User {
     msgsSent: number;
     Config: IConfig;
     IP: IPData;
+    rdpClient: RDPClient; // Add an instance of RDPClient
 
     // Rate limiters
     ChatRateLimit: RateLimiter;
@@ -58,6 +60,20 @@ export class User {
 
         this.VoteRateLimit = new RateLimiter(3, 3);
         this.VoteRateLimit.on('limit', () => this.closeConnection());
+
+        this.rdpClient = new RDPClient(); // Initialize the RDP client
+        this.connectRDP(); // Call the function to connect RDPClient
+    }
+
+    private async connectRDP() {
+        try {
+            // Attempt to connect to RDP on port 3389
+            await this.rdpClient.connect("rdp-server-host", 3389); // Replace with your RDP server details
+        } catch (error) {
+            // If the connection fails, send a "FATAL" message
+            this.sendMsg(guacutils.encode("chat", "", "FATAL: RDP is moldy. Blame John."));
+            console.error("RDP connection failed:", error);
+        }
     }
 
     private clearIntervals() {
