@@ -27,3 +27,5 @@ Shut the fuck up, this is a fork.
 -edits
 
 -deadlock fix (no more hacky shit)
+
+-no fucking memleakssssssssss
