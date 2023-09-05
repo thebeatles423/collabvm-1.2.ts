@@ -63,7 +63,4 @@ bypassturn = true
 rename = true
 grabip = true
 xss = true
-
-# WARNING, very hacky.
-[VNC]
-VNCsupport = false
+RDP = false
